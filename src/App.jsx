@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 
 const STORAGE_KEYS = {
-  demolitionData: "clean-demolition-data-v10",
-  requests: "clean-demolition-requests-v10",
-  authUsers: "clean-demolition-auth-users-v10",
-  authSession: "clean-demolition-auth-session-v10",
+  demolitionData: "clean-demolition-data-v11",
+  requests: "clean-demolition-requests-v11",
+  authUsers: "clean-demolition-auth-users-v11",
+  authSession: "clean-demolition-auth-session-v11",
 };
 
 const ADMIN_ACCOUNT = {
@@ -126,11 +126,26 @@ function paginate(items, page, pageSize = PAGE_SIZE) {
   const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
   const safePage = Math.min(Math.max(1, page), totalPages);
   const start = (safePage - 1) * pageSize;
+
   return {
     items: items.slice(start, start + pageSize),
     totalPages,
     currentPage: safePage,
   };
+}
+
+function sanitizeQuantityInput(value) {
+  const numeric = String(value).replace(/[^\d]/g, "");
+  if (numeric === "") return "";
+  const parsed = parseInt(numeric, 10);
+  if (Number.isNaN(parsed) || parsed < 1) return "1";
+  return String(parsed);
+}
+
+function getSafeQuantity(value) {
+  const parsed = parseInt(String(value), 10);
+  if (Number.isNaN(parsed) || parsed < 1) return 1;
+  return parsed;
 }
 
 function Pagination({ page, totalPages, onChange }) {
@@ -174,6 +189,70 @@ function Pagination({ page, totalPages, onChange }) {
   );
 }
 
+function AppModal({
+  open,
+  title,
+  message,
+  onClose,
+  confirmText = "확인",
+}) {
+  if (!open) return null;
+
+  const lines = Array.isArray(message) ? message : [message];
+
+  return (
+    <div className="popup-overlay modal-overlay" onClick={onClose}>
+      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+        {title ? <h3 className="modal-title">{title}</h3> : null}
+        <div className="modal-body">
+          {lines.map((line, index) => (
+            <p key={`${line}-${index}`}>{line}</p>
+          ))}
+        </div>
+        <div className="modal-actions">
+          <button type="button" className="primary-btn full-width" onClick={onClose}>
+            {confirmText}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function QuantityControl({
+  value,
+  onChange,
+  onIncrease,
+  onDecrease,
+  placeholder = "수량",
+}) {
+  return (
+    <div className="quantity-control">
+      <button type="button" className="quantity-btn" onClick={onDecrease}>
+        -
+      </button>
+      <input
+        type="text"
+        inputMode="numeric"
+        pattern="[0-9]*"
+        className="quantity-input"
+        value={value}
+        onFocus={(e) => e.target.select()}
+        onChange={onChange}
+        onBlur={() => {
+          if (String(value).trim() === "") {
+            onChange({ target: { value: "1" } });
+          }
+        }}
+        placeholder={placeholder}
+      />
+      <button type="button" className="quantity-btn" onClick={onIncrease}>
+        +
+      </button>
+    </div>
+  );
+}
+
 function App() {
   const [demolitionData, setDemolitionData] = useState(() =>
     loadLocalStorage(STORAGE_KEYS.demolitionData, createInitialDemolitionData())
@@ -187,6 +266,13 @@ function App() {
   const [session, setSession] = useState(() =>
     loadLocalStorage(STORAGE_KEYS.authSession, null)
   );
+
+  const [modalState, setModalState] = useState({
+    open: false,
+    title: "",
+    message: "",
+    onClose: null,
+  });
 
   const [authMode, setAuthMode] = useState("signup");
   const [signupForm, setSignupForm] = useState({
@@ -223,7 +309,7 @@ function App() {
     requestDate: "",
     category: firstCategory,
     currentItemId: firstCategoryOptions[0]?.id || "",
-    currentQuantity: 1,
+    currentQuantity: "1",
     detailItems: [],
     memo: "",
   });
@@ -234,6 +320,26 @@ function App() {
     price: "",
     unit: "",
   });
+
+  const openModal = ({ title = "", message = "", onClose = null }) => {
+    setModalState({
+      open: true,
+      title,
+      message,
+      onClose,
+    });
+  };
+
+  const closeModal = () => {
+    const callback = modalState.onClose;
+    setModalState({
+      open: false,
+      title: "",
+      message: "",
+      onClose: null,
+    });
+    if (typeof callback === "function") callback();
+  };
 
   useEffect(() => {
     saveLocalStorage(STORAGE_KEYS.demolitionData, demolitionData);
@@ -414,18 +520,24 @@ function App() {
     const confirmPassword = signupForm.confirmPassword.trim();
 
     if (!companyName || !phone || !id || !password || !confirmPassword) {
-      alert("모든 항목을 입력해 주세요.");
+      openModal({ title: "입력 확인", message: "모든 항목을 입력해 주세요." });
       return;
     }
 
     if (password !== confirmPassword) {
-      alert("비밀번호와 비밀번호 확인이 일치하지 않습니다.");
+      openModal({
+        title: "비밀번호 확인",
+        message: "비밀번호와 비밀번호 확인이 일치하지 않습니다.",
+      });
       return;
     }
 
     const exists = users.some((user) => user.id === id);
     if (exists) {
-      alert("이미 사용 중인 아이디입니다.");
+      openModal({
+        title: "아이디 확인",
+        message: "이미 사용 중인 아이디입니다.",
+      });
       return;
     }
 
@@ -450,7 +562,10 @@ function App() {
       confirmPassword: "",
     });
 
-    alert("회원가입이 완료되었습니다.");
+    openModal({
+      title: "회원가입 완료",
+      message: "회원가입이 완료되었습니다.",
+    });
   };
 
   const handleLogin = (event) => {
@@ -464,7 +579,10 @@ function App() {
     );
 
     if (!matchedUser) {
-      alert("아이디 또는 비밀번호를 확인해 주세요.");
+      openModal({
+        title: "로그인 실패",
+        message: "아이디 또는 비밀번호를 확인해 주세요.",
+      });
       return;
     }
 
@@ -479,12 +597,15 @@ function App() {
 
   const handleAddressSearch = () => {
     if (!window.daum || !window.daum.Postcode) {
-      alert("주소검색 서비스를 불러오는 중입니다. 잠시 후 다시 시도해 주세요.");
+      openModal({
+        title: "주소검색",
+        message: "주소검색 서비스를 불러오는 중입니다. 잠시 후 다시 시도해 주세요.",
+      });
       return;
     }
 
     new window.daum.Postcode({
-      oncomplete: function (data) {
+      oncomplete(data) {
         const fullAddress = data.address || "";
         setRequestForm((prev) => ({
           ...prev,
@@ -500,25 +621,47 @@ function App() {
       ...prev,
       category: value,
       currentItemId: nextOptions[0]?.id || "",
-      currentQuantity: 1,
+      currentQuantity: "1",
+    }));
+  };
+
+  const updateRequestQuantityInput = (rawValue) => {
+    setRequestForm((prev) => ({
+      ...prev,
+      currentQuantity: sanitizeQuantityInput(rawValue),
+    }));
+  };
+
+  const increaseRequestQuantity = () => {
+    setRequestForm((prev) => ({
+      ...prev,
+      currentQuantity: String(getSafeQuantity(prev.currentQuantity) + 1),
+    }));
+  };
+
+  const decreaseRequestQuantity = () => {
+    setRequestForm((prev) => ({
+      ...prev,
+      currentQuantity: String(Math.max(1, getSafeQuantity(prev.currentQuantity) - 1)),
     }));
   };
 
   const handleAddCurrentItem = () => {
-    const quantity = Number(requestForm.currentQuantity || 0);
+    const quantity = getSafeQuantity(requestForm.currentQuantity);
 
     if (!requestForm.category) {
-      alert("철거 카테고리를 선택해 주세요.");
+      openModal({
+        title: "입력 확인",
+        message: "철거 카테고리를 선택해 주세요.",
+      });
       return;
     }
 
     if (!requestForm.currentItemId) {
-      alert("세부내용을 선택해 주세요.");
-      return;
-    }
-
-    if (quantity <= 0) {
-      alert("수량은 1 이상이어야 합니다.");
+      openModal({
+        title: "입력 확인",
+        message: "세부내용을 선택해 주세요.",
+      });
       return;
     }
 
@@ -527,7 +670,10 @@ function App() {
     );
 
     if (!selectedItem) {
-      alert("선택한 세부 항목을 찾을 수 없습니다.");
+      openModal({
+        title: "항목 확인",
+        message: "선택한 세부 항목을 찾을 수 없습니다.",
+      });
       return;
     }
 
@@ -552,7 +698,7 @@ function App() {
         return {
           ...prev,
           detailItems: updatedItems,
-          currentQuantity: 1,
+          currentQuantity: "1",
         };
       }
 
@@ -570,7 +716,7 @@ function App() {
       return {
         ...prev,
         detailItems: [...prev.detailItems, newItem],
-        currentQuantity: 1,
+        currentQuantity: "1",
       };
     });
   };
@@ -586,17 +732,26 @@ function App() {
     event.preventDefault();
 
     if (!currentUser) {
-      alert("로그인 후 이용해 주세요.");
+      openModal({
+        title: "로그인 필요",
+        message: "로그인 후 이용해 주세요.",
+      });
       return;
     }
 
     if (!requestForm.address.trim() || !requestForm.requestDate || !requestForm.category) {
-      alert("주소, 희망 일정, 카테고리를 입력해 주세요.");
+      openModal({
+        title: "입력 확인",
+        message: "주소, 희망 일정, 카테고리를 입력해 주세요.",
+      });
       return;
     }
 
     if (requestForm.detailItems.length === 0) {
-      alert("세부 항목을 1개 이상 추가해 주세요.");
+      openModal({
+        title: "입력 확인",
+        message: "세부 항목을 1개 이상 추가해 주세요.",
+      });
       return;
     }
 
@@ -644,12 +799,15 @@ function App() {
       requestDate: "",
       category: firstCategory,
       currentItemId: resetOptions[0]?.id || "",
-      currentQuantity: 1,
+      currentQuantity: "1",
       detailItems: [],
       memo: "",
     });
 
-    alert("일정 요청이 등록되었습니다.");
+    openModal({
+      title: "일정 요청 완료",
+      message: "일정 요청이 등록되었습니다.",
+    });
   };
 
   const handleApproveUser = (userId) => {
@@ -717,11 +875,20 @@ function App() {
       )
     );
 
-    alert(
-      kakaoResult.mode === "sdk"
-        ? "확정 처리되었습니다.\n카카오 발송이 실행되었고 PDF 출력이 가능합니다."
-        : "확정 처리되었습니다.\nPDF 출력이 가능합니다.\n현재는 카카오 자동발송 연동 준비형 상태로 저장됩니다."
-    );
+    openModal({
+      title: "확정 완료",
+      message:
+        kakaoResult.mode === "sdk"
+          ? [
+              "확정 처리되었습니다.",
+              "카카오 발송이 실행되었고 PDF 출력이 가능합니다.",
+            ]
+          : [
+              "확정 처리되었습니다.",
+              "PDF 출력이 가능합니다.",
+              "현재는 카카오 자동발송 연동 준비형 상태로 저장됩니다.",
+            ],
+    });
   };
 
   const openSettlementEditor = (request) => {
@@ -738,7 +905,7 @@ function App() {
       [request.id]: {
         category: baseCategory,
         currentItemId: baseOptions[0]?.id || "",
-        currentQuantity: 1,
+        currentQuantity: "1",
         actualItems: cloneItems(baseItems),
       },
     }));
@@ -765,7 +932,17 @@ function App() {
             ...draft,
             category: value,
             currentItemId: nextOptions[0]?.id || "",
-            currentQuantity: 1,
+            currentQuantity: "1",
+          },
+        };
+      }
+
+      if (field === "currentQuantity") {
+        return {
+          ...prev,
+          [requestId]: {
+            ...draft,
+            currentQuantity: sanitizeQuantityInput(value),
           },
         };
       }
@@ -780,6 +957,36 @@ function App() {
     });
   };
 
+  const increaseSettlementQuantity = (requestId) => {
+    setSettlementDrafts((prev) => {
+      const draft = prev[requestId];
+      if (!draft) return prev;
+
+      return {
+        ...prev,
+        [requestId]: {
+          ...draft,
+          currentQuantity: String(getSafeQuantity(draft.currentQuantity) + 1),
+        },
+      };
+    });
+  };
+
+  const decreaseSettlementQuantity = (requestId) => {
+    setSettlementDrafts((prev) => {
+      const draft = prev[requestId];
+      if (!draft) return prev;
+
+      return {
+        ...prev,
+        [requestId]: {
+          ...draft,
+          currentQuantity: String(Math.max(1, getSafeQuantity(draft.currentQuantity) - 1)),
+        },
+      };
+    });
+  };
+
   const handleAddSettlementItem = (requestId) => {
     const draft = settlementDrafts[requestId];
     if (!draft) return;
@@ -788,15 +995,13 @@ function App() {
     const selectedItem = options.find(
       (item) => item.id === Number(draft.currentItemId)
     );
-    const quantity = Number(draft.currentQuantity || 0);
+    const quantity = getSafeQuantity(draft.currentQuantity);
 
     if (!selectedItem) {
-      alert("정산할 세부 항목을 선택해 주세요.");
-      return;
-    }
-
-    if (quantity <= 0) {
-      alert("수량은 1 이상이어야 합니다.");
+      openModal({
+        title: "정산 항목 확인",
+        message: "정산할 세부 항목을 선택해 주세요.",
+      });
       return;
     }
 
@@ -838,7 +1043,7 @@ function App() {
         [requestId]: {
           ...currentDraft,
           actualItems: nextItems,
-          currentQuantity: 1,
+          currentQuantity: "1",
         },
       };
     });
@@ -877,7 +1082,10 @@ function App() {
       )
     );
 
-    alert("정산 내역이 저장되었습니다.");
+    openModal({
+      title: "정산 저장 완료",
+      message: "정산 내역이 저장되었습니다.",
+    });
   };
 
   const handleCompleteRequest = (requestId) => {
@@ -910,12 +1118,18 @@ function App() {
     );
 
     closeSettlementEditor(requestId);
-    alert("공사완료 처리되었습니다.");
+    openModal({
+      title: "공사완료",
+      message: "공사완료 처리되었습니다.",
+    });
   };
 
   const handlePrintPdf = (request) => {
     if (!request.pdfReady) {
-      alert("확정 후 PDF 출력이 가능합니다.");
+      openModal({
+        title: "PDF 출력",
+        message: "확정 후 PDF 출력이 가능합니다.",
+      });
       return;
     }
 
@@ -931,7 +1145,10 @@ function App() {
 
     const printWindow = window.open("", "_blank", "width=900,height=1000");
     if (!printWindow) {
-      alert("팝업이 차단되었습니다. 팝업 허용 후 다시 시도해 주세요.");
+      openModal({
+        title: "팝업 차단",
+        message: "팝업이 차단되었습니다. 팝업 허용 후 다시 시도해 주세요.",
+      });
       return;
     }
 
@@ -1019,7 +1236,10 @@ function App() {
     const unit = adminPriceForm.unit.trim();
 
     if (!category || !name || !price || !unit) {
-      alert("카테고리, 항목명, 단가, 단위를 모두 입력해 주세요.");
+      openModal({
+        title: "단가표 입력 확인",
+        message: "카테고리, 항목명, 단가, 단위를 모두 입력해 주세요.",
+      });
       return;
     }
 
@@ -1055,6 +1275,23 @@ function App() {
     setCompletedSearchKeyword(completedSearchInput.trim());
   };
 
+  const renderRequestItems = (items, compact = false) => (
+    <div className={compact ? "completed-item-list" : "request-items"}>
+      {items.map((item, index) => (
+        <div
+          key={`${item.rowId || item.itemId || index}-${index}`}
+          className={compact ? "completed-item" : "request-item"}
+        >
+          <span>
+            [{item.category}] {item.name} / {item.quantity}
+            {item.unit}
+          </span>
+          <strong>{formatNumber(item.total)}원</strong>
+        </div>
+      ))}
+    </div>
+  );
+
   return (
     <div className="app">
       <div className="container">
@@ -1086,12 +1323,12 @@ function App() {
                 </div>
 
                 <div className="action-stack">
-                  <button className="secondary-btn" onClick={handleLogout}>
+                  <button className="secondary-btn action-btn" onClick={handleLogout}>
                     로그아웃
                   </button>
                   {!isAdmin && (
                     <button
-                      className="secondary-btn small-btn"
+                      className="secondary-btn small-btn action-btn"
                       onClick={() => setShowServiceHistory((prev) => !prev)}
                     >
                       서비스내역조회
@@ -1099,7 +1336,7 @@ function App() {
                   )}
                   {isAdmin && (
                     <button
-                      className="secondary-btn small-btn"
+                      className="secondary-btn small-btn action-btn"
                       onClick={() => setShowApprovedUsersPopup(true)}
                     >
                       승인완료회원
@@ -1108,7 +1345,7 @@ function App() {
                 </div>
               </>
             ) : (
-              <>
+              <div className="auth-top-buttons">
                 <button
                   className={authMode === "login" ? "primary-btn" : "secondary-btn"}
                   onClick={() => setAuthMode("login")}
@@ -1121,7 +1358,7 @@ function App() {
                 >
                   회원가입
                 </button>
-              </>
+              </div>
             )}
           </div>
         </header>
@@ -1155,11 +1392,12 @@ function App() {
                     <label>휴대전화</label>
                     <input
                       type="text"
+                      inputMode="numeric"
                       value={signupForm.phone}
                       onChange={(e) =>
                         setSignupForm((prev) => ({
                           ...prev,
-                          phone: e.target.value,
+                          phone: e.target.value.replace(/[^\d-]/g, ""),
                         }))
                       }
                       placeholder="휴대전화 번호를 입력해 주세요"
@@ -1259,19 +1497,19 @@ function App() {
               <div className="info-list">
                 <div className="info-item">
                   <strong>1. 회원가입</strong>
-                  <span>회원가입 후 로그인하여 바로 일정 요청 가능</span>
+                  <span>회원가입 후 로그인하여 바로 일정 요청이 가능합니다.</span>
                 </div>
                 <div className="info-item">
                   <strong>2. 일정 요청</strong>
-                  <span>철거 항목과 수량, 희망 날짜, 주소 입력</span>
+                  <span>철거 항목, 수량, 희망 날짜, 주소를 입력합니다.</span>
                 </div>
                 <div className="info-item">
                   <strong>3. 관리자 검토</strong>
-                  <span>접수 후 회원 승인 및 일정 확정 처리</span>
+                  <span>접수 후 회원 승인 및 일정 확정 처리가 진행됩니다.</span>
                 </div>
                 <div className="info-item">
                   <strong>4. 상태 확인</strong>
-                  <span>접수 / 검토중 / 확정 / 완료 상태 확인 가능</span>
+                  <span>접수 / 검토중 / 확정 / 완료 상태를 확인할 수 있습니다.</span>
                 </div>
               </div>
             </div>
@@ -1283,7 +1521,7 @@ function App() {
             <section className="section-card">
               {!currentUser.approved && (
                 <div className="notice-box">
-                  관리자 승인 후 일정확정이 진행됩니다.
+                  일정 요청 후 관리자 승인 시 일정확정이 진행됩니다.
                 </div>
               )}
 
@@ -1378,25 +1616,19 @@ function App() {
                       ))}
                     </select>
 
-                    <input
-                      type="number"
-                      min="1"
+                    <QuantityControl
                       value={requestForm.currentQuantity}
-                      onChange={(e) =>
-                        setRequestForm((prev) => ({
-                          ...prev,
-                          currentQuantity: Number(e.target.value),
-                        }))
-                      }
-                      placeholder="수량"
+                      onChange={(e) => updateRequestQuantityInput(e.target.value)}
+                      onIncrease={increaseRequestQuantity}
+                      onDecrease={decreaseRequestQuantity}
                     />
 
                     <button
                       type="button"
-                      className="primary-btn small-btn"
+                      className="primary-btn small-btn add-item-btn"
                       onClick={handleAddCurrentItem}
                     >
-                      추가
+                      항목 추가
                     </button>
                   </div>
 
@@ -1490,17 +1722,7 @@ function App() {
                           </span>
                         </div>
 
-                        <div className="request-items">
-                          {request.detailItems.map((item, index) => (
-                            <div key={`${request.id}-${index}`} className="request-item">
-                              <span>
-                                [{item.category}] {item.name} / {item.quantity}
-                                {item.unit}
-                              </span>
-                              <strong>{formatNumber(item.total)}원</strong>
-                            </div>
-                          ))}
-                        </div>
+                        {renderRequestItems(request.detailItems)}
 
                         {request.memo && (
                           <div className="request-memo">요청사항: {request.memo}</div>
@@ -1525,51 +1747,48 @@ function App() {
               ) : (
                 <div className="request-list">
                   {serviceHistory.map((request) => (
-                    <div className="request-card" key={request.id}>
-                      <div className="request-top">
+                    <div className="request-card completed-card" key={request.id}>
+                      <div className="request-top compact-top">
                         <div>
                           <h3>{request.companyName}</h3>
-                          <p>{request.address}</p>
+                          <p className="compact-address">{request.address}</p>
                         </div>
-                        <span className={`status-badge ${request.status}`}>
-                          {getStatusLabel(request.status)}
-                        </span>
+                        <span className="status-badge 완료">완료</span>
                       </div>
 
-                      <div className="request-items">
-                        {(request.actualDetailItems?.length
-                          ? request.actualDetailItems
-                          : request.detailItems
-                        ).map((item, index) => (
-                          <div key={`${request.id}-${index}`} className="request-item">
-                            <span>
-                              [{item.category}] {item.name} / {item.quantity}
-                              {item.unit}
-                            </span>
-                            <strong>{formatNumber(item.total)}원</strong>
-                          </div>
-                        ))}
-                      </div>
-
-                      {request.memo && (
-                        <div className="request-memo">요청사항: {request.memo}</div>
-                      )}
-
-                      <div className="request-summary-box">
-                        <div className="request-summary-item">
+                      <div className="completed-summary">
+                        <div className="completed-summary-row">
                           <span>작업일정</span>
                           <strong>{formatDate(request.requestDate)}</strong>
                         </div>
-                        <div className="request-summary-item total">
+                        <div className="completed-summary-row total">
                           <span>정산금액</span>
                           <strong>
-                            {formatNumber(
-                              request.settledTotalPrice || request.totalPrice
-                            )}
-                            원
+                            {formatNumber(request.settledTotalPrice || request.totalPrice)}원
                           </strong>
                         </div>
                       </div>
+
+                      {renderRequestItems(
+                        (request.actualDetailItems?.length
+                          ? request.actualDetailItems
+                          : request.detailItems
+                        ).slice(0, 2),
+                        true
+                      )}
+
+                      {(request.actualDetailItems?.length
+                        ? request.actualDetailItems
+                        : request.detailItems
+                      ).length > 2 && (
+                        <div className="completed-more">
+                          외 {(request.actualDetailItems?.length
+                            ? request.actualDetailItems
+                            : request.detailItems
+                          ).length - 2}
+                          건
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1591,7 +1810,9 @@ function App() {
               </div>
 
               {pendingUsers.length === 0 ? (
-                <div className="empty-box">신규 승인 요청 회원이 없습니다.</div>
+                <div className="empty-box compact-empty">
+                  신규 승인 요청 회원이 없습니다.
+                </div>
               ) : (
                 <div className="simple-list">
                   {pendingUsers.map((user) => (
@@ -1664,17 +1885,7 @@ function App() {
                             </span>
                           </div>
 
-                          <div className="request-items">
-                            {request.detailItems.map((item, index) => (
-                              <div key={`${request.id}-${index}`} className="request-item">
-                                <span>
-                                  [{item.category}] {item.name} / {item.quantity}
-                                  {item.unit}
-                                </span>
-                                <strong>{formatNumber(item.total)}원</strong>
-                              </div>
-                            ))}
-                          </div>
+                          {renderRequestItems(request.detailItems)}
 
                           {request.memo && (
                             <div className="request-memo">요청사항: {request.memo}</div>
@@ -1750,20 +1961,11 @@ function App() {
                               </span>
                             </div>
 
-                            <div className="request-items">
-                              {(request.actualDetailItems?.length
+                            {renderRequestItems(
+                              request.actualDetailItems?.length
                                 ? request.actualDetailItems
                                 : request.detailItems
-                              ).map((item, index) => (
-                                <div key={`${request.id}-${index}`} className="request-item">
-                                  <span>
-                                    [{item.category}] {item.name} / {item.quantity}
-                                    {item.unit}
-                                  </span>
-                                  <strong>{formatNumber(item.total)}원</strong>
-                                </div>
-                              ))}
-                            </div>
+                            )}
 
                             {request.memo && (
                               <div className="request-memo">요청사항: {request.memo}</div>
@@ -1775,7 +1977,7 @@ function App() {
                                 <strong>{formatDate(request.requestDate)}</strong>
                               </div>
                               <div className="request-summary-item total">
-                                <span>총금액</span>
+                                <span>현재금액</span>
                                 <strong>
                                   {formatNumber(
                                     request.settledTotalPrice || request.totalPrice
@@ -1787,12 +1989,14 @@ function App() {
 
                             <div className="status-actions">
                               <button
+                                type="button"
                                 className="secondary-btn small-btn"
                                 onClick={() => openSettlementEditor(request)}
                               >
                                 정산하기
                               </button>
                               <button
+                                type="button"
                                 className="primary-btn small-btn"
                                 onClick={() => handleCompleteRequest(request.id)}
                               >
@@ -1856,26 +2060,25 @@ function App() {
                                     ))}
                                   </select>
 
-                                  <input
-                                    type="number"
-                                    min="1"
+                                  <QuantityControl
                                     value={settlementDraft.currentQuantity}
                                     onChange={(e) =>
                                       updateSettlementDraftField(
                                         request.id,
                                         "currentQuantity",
-                                        Number(e.target.value)
+                                        e.target.value
                                       )
                                     }
-                                    placeholder="수량"
+                                    onIncrease={() => increaseSettlementQuantity(request.id)}
+                                    onDecrease={() => decreaseSettlementQuantity(request.id)}
                                   />
 
                                   <button
                                     type="button"
-                                    className="primary-btn small-btn"
+                                    className="primary-btn small-btn add-item-btn"
                                     onClick={() => handleAddSettlementItem(request.id)}
                                   >
-                                    추가
+                                    항목 추가
                                   </button>
                                 </div>
 
@@ -1988,53 +2191,52 @@ function App() {
                   {completedPagination.items.length === 0 ? (
                     <div className="empty-box">표시할 완료 건이 없습니다.</div>
                   ) : (
-                    <div className="request-list">
-                      {completedPagination.items.map((request) => (
-                        <div className="request-card" key={request.id}>
-                          <div className="request-top">
-                            <div>
-                              <h3>{request.companyName}</h3>
-                              <p>{request.address}</p>
-                            </div>
-                            <span className="status-badge 완료">완료</span>
-                          </div>
+                    <div className="completed-list">
+                      {completedPagination.items.map((request) => {
+                        const finalItems = request.actualDetailItems?.length
+                          ? request.actualDetailItems
+                          : request.detailItems;
 
-                          <div className="request-items">
-                            {(request.actualDetailItems?.length
-                              ? request.actualDetailItems
-                              : request.detailItems
-                            ).map((item, index) => (
-                              <div key={`${request.id}-${index}`} className="request-item">
-                                <span>
-                                  [{item.category}] {item.name} / {item.quantity}
-                                  {item.unit}
-                                </span>
-                                <strong>{formatNumber(item.total)}원</strong>
+                        return (
+                          <div className="completed-card admin-completed-card" key={request.id}>
+                            <div className="request-top compact-top">
+                              <div>
+                                <h3>{request.companyName}</h3>
+                                <p className="compact-address">{request.address}</p>
                               </div>
-                            ))}
-                          </div>
-
-                          {request.memo && (
-                            <div className="request-memo">요청사항: {request.memo}</div>
-                          )}
-
-                          <div className="request-summary-box admin-summary-box">
-                            <div className="request-summary-item">
-                              <span>일정</span>
-                              <strong>{formatDate(request.requestDate)}</strong>
+                              <span className="status-badge 완료">완료</span>
                             </div>
-                            <div className="request-summary-item total">
-                              <span>총금액</span>
-                              <strong>
-                                {formatNumber(
-                                  request.settledTotalPrice || request.totalPrice
-                                )}
-                                원
-                              </strong>
+
+                            <div className="completed-summary compact-summary">
+                              <div className="completed-summary-row">
+                                <span>작업일정</span>
+                                <strong>{formatDate(request.requestDate)}</strong>
+                              </div>
+                              <div className="completed-summary-row total">
+                                <span>정산금액</span>
+                                <strong>
+                                  {formatNumber(request.settledTotalPrice || request.totalPrice)}원
+                                </strong>
+                              </div>
+                            </div>
+
+                            {renderRequestItems(finalItems.slice(0, 2), true)}
+
+                            {finalItems.length > 2 && (
+                              <div className="completed-more">외 {finalItems.length - 2}건</div>
+                            )}
+
+                            <div className="status-actions compact-actions">
+                              <button
+                                className="secondary-btn small-btn"
+                                onClick={() => handlePrintPdf(request)}
+                              >
+                                PDF 출력
+                              </button>
                             </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
 
@@ -2052,7 +2254,7 @@ function App() {
                 <div>
                   <h2>단가표 관리</h2>
                   <p className="section-description">
-                    카테고리별 철거 단가를 추가하거나 삭제할 수 있습니다.
+                    카테고리별 항목과 단가를 추가/삭제할 수 있습니다.
                   </p>
                 </div>
               </div>
@@ -2076,7 +2278,6 @@ function App() {
 
                 <input
                   type="text"
-                  placeholder="항목명"
                   value={adminPriceForm.name}
                   onChange={(e) =>
                     setAdminPriceForm((prev) => ({
@@ -2084,11 +2285,11 @@ function App() {
                       name: e.target.value,
                     }))
                   }
+                  placeholder="항목명"
                 />
 
                 <input
                   type="number"
-                  placeholder="단가"
                   value={adminPriceForm.price}
                   onChange={(e) =>
                     setAdminPriceForm((prev) => ({
@@ -2096,11 +2297,11 @@ function App() {
                       price: e.target.value,
                     }))
                   }
+                  placeholder="단가"
                 />
 
                 <input
                   type="text"
-                  placeholder="단위"
                   value={adminPriceForm.unit}
                   onChange={(e) =>
                     setAdminPriceForm((prev) => ({
@@ -2108,20 +2309,21 @@ function App() {
                       unit: e.target.value,
                     }))
                   }
+                  placeholder="단위"
                 />
 
                 <button type="submit" className="primary-btn">
-                  항목 추가
+                  추가
                 </button>
               </form>
 
               <div className="price-board">
                 {categoryList.map((category) => (
-                  <div className="sub-card" key={category}>
+                  <div key={category} className="sub-card compact-sub-card">
                     <h3>{category}</h3>
                     <div className="price-list">
                       {(demolitionData[category] || []).map((item) => (
-                        <div className="price-item" key={item.id}>
+                        <div key={item.id} className="price-item compact-price-item">
                           <div>
                             <strong>{item.name}</strong>
                             <p>
@@ -2129,6 +2331,7 @@ function App() {
                             </p>
                           </div>
                           <button
+                            type="button"
                             className="danger-btn small-btn"
                             onClick={() => handleDeletePriceItem(category, item.id)}
                           >
@@ -2145,11 +2348,15 @@ function App() {
         )}
 
         {showApprovedUsersPopup && (
-          <div className="popup-overlay" onClick={() => setShowApprovedUsersPopup(false)}>
-            <div className="popup-card" onClick={(e) => e.stopPropagation()}>
-              <div className="popup-header">
+          <div
+            className="popup-overlay"
+            onClick={() => setShowApprovedUsersPopup(false)}
+          >
+            <div className="popup-card compact-popup-card" onClick={(e) => e.stopPropagation()}>
+              <div className="popup-header compact-popup-header">
                 <h3>승인완료회원</h3>
                 <button
+                  type="button"
                   className="secondary-btn small-btn"
                   onClick={() => setShowApprovedUsersPopup(false)}
                 >
@@ -2157,22 +2364,23 @@ function App() {
                 </button>
               </div>
 
-              <div className="input-group">
-                <label>회원 검색</label>
+              <div className="search-bar-row compact-search-row">
                 <input
                   type="text"
                   value={approvedSearch}
                   onChange={(e) => setApprovedSearch(e.target.value)}
-                  placeholder="아이디 / 회사명 / 휴대전화 검색"
+                  placeholder="아이디 / 회사명 / 연락처 검색"
                 />
               </div>
 
               {approvedUsers.length === 0 ? (
-                <div className="empty-box">검색 결과가 없습니다.</div>
+                <div className="empty-box compact-empty">
+                  승인완료된 회원이 없습니다.
+                </div>
               ) : (
                 <div className="simple-list popup-list">
                   {approvedUsers.map((user) => (
-                    <div key={user.id} className="simple-item">
+                    <div key={user.id} className="simple-item compact-simple-item">
                       <div>
                         <strong>{user.id}</strong>
                         <p>
@@ -2180,7 +2388,7 @@ function App() {
                           {user.phone ? ` / ${user.phone}` : ""}
                         </p>
                       </div>
-                      <span className="status-badge approved">승인완료</span>
+                      <span className="user-state-badge approved">승인완료</span>
                     </div>
                   ))}
                 </div>
@@ -2188,6 +2396,13 @@ function App() {
             </div>
           </div>
         )}
+
+        <AppModal
+          open={modalState.open}
+          title={modalState.title}
+          message={modalState.message}
+          onClose={closeModal}
+        />
       </div>
     </div>
   );
